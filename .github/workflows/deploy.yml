@@ -16,10 +16,27 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install Railway CLI
-        run: npm install -g @railway/cli
-
-      - name: Deploy to Railway
-        run: railway up --detach --service discord-bot
+      - name: Create Railway project and deploy
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
+          AI_BASE_URL: ${{ secrets.AI_INTEGRATIONS_OPENAI_BASE_URL }}
+          AI_API_KEY: ${{ secrets.AI_INTEGRATIONS_OPENAI_API_KEY }}
+        run: |
+          # Create Railway project via GraphQL API
+          RESPONSE=$(curl -s -X POST https://backboard.railway.app/graphql/v2 \
+            -H "Authorization: Bearer $RAILWAY_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d '{"query":"mutation { projectCreate(input: { name: \"discord-bot\" }) { id } }"}')
+          echo "Create project response: $RESPONSE"
+          PROJECT_ID=$(echo $RESPONSE | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['data']['projectCreate']['id'])" 2>/dev/null)
+          echo "Project ID: $PROJECT_ID"
+
+          if [ -z "$PROJECT_ID" ]; then
+            echo "Could not create project, trying to list existing..."
+            LIST=$(curl -s -X POST https://backboard.railway.app/graphql/v2 \
+              -H "Authorization: Bearer $RAILWAY_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d '{"query":"{ me { projects { edges { node { id name } } } } }"}')
+            echo "Projects: $LIST"
+          fi
