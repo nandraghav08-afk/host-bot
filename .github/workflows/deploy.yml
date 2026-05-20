@@ -19,22 +19,40 @@ jobs:
       - name: Install Railway CLI
         run: npm install -g @railway/cli
 
-      - name: Set environment variables on Railway
+      - name: Set env vars and get project token
+        id: tokens
         env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_ACCOUNT_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
           DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
         run: |
-          set_var() {
-            curl -s -X POST https://backboard.railway.app/graphql/v2 \
-              -H "Authorization: Bearer $RAILWAY_TOKEN" \
-              -H "Content-Type: application/json" \
-              -d "{\"query\":\"mutation { variableUpsert(input: { projectId: \\\"$PROJECT_ID\\\", environmentId: \\\"$ENV_ID\\\", serviceId: \\\"$SERVICE_ID\\\", name: \\\"$1\\\", value: \\\"$2\\\" }) }\"}" > /dev/null
-            echo "Set var: $1"
-          }
-          set_var "DISCORD_TOKEN" "$DISCORD_TOKEN"
-          set_var "PYTHONUNBUFFERED" "1"
+          # Set DISCORD_TOKEN env var on Railway
+          curl -s -X POST https://backboard.railway.app/graphql/v2 \
+            -H "Authorization: Bearer $RAILWAY_ACCOUNT_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "{\"query\":\"mutation { variableUpsert(input: { projectId: \\\"$PROJECT_ID\\\", environmentId: \\\"$ENV_ID\\\", serviceId: \\\"$SERVICE_ID\\\", name: \\\"DISCORD_TOKEN\\\", value: \\\"$DISCORD_TOKEN\\\" }) }\"}" > /dev/null
+          echo "✅ Set DISCORD_TOKEN"
+
+          curl -s -X POST https://backboard.railway.app/graphql/v2 \
+            -H "Authorization: Bearer $RAILWAY_ACCOUNT_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "{\"query\":\"mutation { variableUpsert(input: { projectId: \\\"$PROJECT_ID\\\", environmentId: \\\"$ENV_ID\\\", serviceId: \\\"$SERVICE_ID\\\", name: \\\"PYTHONUNBUFFERED\\\", value: \\\"1\\\" }) }\"}" > /dev/null
+          echo "✅ Set PYTHONUNBUFFERED"
+
+          # Create a project token for CLI auth
+          TOKEN_RESP=$(curl -s -X POST https://backboard.railway.app/graphql/v2 \
+            -H "Authorization: Bearer $RAILWAY_ACCOUNT_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "{\"query\":\"mutation { projectTokenCreate(projectId: \\\"$PROJECT_ID\\\", environmentId: \\\"$ENV_ID\\\", name: \\\"ci-deploy\\\") }\"}")
+          echo "Token response: $TOKEN_RESP"
+          PROJECT_TOKEN=$(echo $TOKEN_RESP | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['projectTokenCreate'])" 2>/dev/null)
+          if [ -z "$PROJECT_TOKEN" ]; then
+            echo "Failed to create project token!"
+            exit 1
+          fi
+          echo "✅ Got project token"
+          echo "project_token=$PROJECT_TOKEN" >> $GITHUB_OUTPUT
 
       - name: Deploy to Railway
         env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-        run: railway up --project $PROJECT_ID --service $SERVICE_ID --environment $ENV_ID --detach
+          RAILWAY_TOKEN: ${{ steps.tokens.outputs.project_token }}
+        run: railway up --service $SERVICE_ID --detach
