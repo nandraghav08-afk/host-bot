@@ -11,32 +11,63 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
 
-      - name: Create Railway project and deploy
+      - name: Create service and set env vars
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
           DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
           AI_BASE_URL: ${{ secrets.AI_INTEGRATIONS_OPENAI_BASE_URL }}
           AI_API_KEY: ${{ secrets.AI_INTEGRATIONS_OPENAI_API_KEY }}
         run: |
-          # Create Railway project via GraphQL API
-          RESPONSE=$(curl -s -X POST https://backboard.railway.app/graphql/v2 \
+          PROJECT_ID="023ba619-4b39-47b1-a8c4-c6c6f130f4c8"
+
+          # Create a service in the project
+          SERVICE_RESP=$(curl -s -X POST https://backboard.railway.app/graphql/v2 \
             -H "Authorization: Bearer $RAILWAY_TOKEN" \
             -H "Content-Type: application/json" \
-            -d '{"query":"mutation { projectCreate(input: { name: \"discord-bot\" }) { id } }"}')
-          echo "Create project response: $RESPONSE"
-          PROJECT_ID=$(echo $RESPONSE | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['data']['projectCreate']['id'])" 2>/dev/null)
-          echo "Project ID: $PROJECT_ID"
+            -d "{\"query\":\"mutation { serviceCreate(input: { projectId: \\\"$PROJECT_ID\\\", name: \\\"discord-bot\\\" }) { id } }\"}")
+          echo "Service: $SERVICE_RESP"
+          SERVICE_ID=$(echo $SERVICE_RESP | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['data']['serviceCreate']['id'])" 2>/dev/null)
+          echo "Service ID: $SERVICE_ID"
 
-          if [ -z "$PROJECT_ID" ]; then
-            echo "Could not create project, trying to list existing..."
+          if [ -z "$SERVICE_ID" ]; then
+            # Service might already exist, get existing
             LIST=$(curl -s -X POST https://backboard.railway.app/graphql/v2 \
               -H "Authorization: Bearer $RAILWAY_TOKEN" \
               -H "Content-Type: application/json" \
-              -d '{"query":"{ me { projects { edges { node { id name } } } } }"}')
-            echo "Projects: $LIST"
+              -d "{\"query\":\"{ project(id: \\\"$PROJECT_ID\\\") { services { edges { node { id name } } } } }\"}")
+            echo "Services: $LIST"
+            SERVICE_ID=$(echo $LIST | python3 -c "import sys,json; d=json.load(sys.stdin); nodes=d['data']['project']['services']['edges']; print(nodes[0]['node']['id'])" 2>/dev/null)
+            echo "Existing service ID: $SERVICE_ID"
           fi
+
+          # Get environment ID
+          ENV_RESP=$(curl -s -X POST https://backboard.railway.app/graphql/v2 \
+            -H "Authorization: Bearer $RAILWAY_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "{\"query\":\"{ project(id: \\\"$PROJECT_ID\\\") { environments { edges { node { id name } } } } }\"}")
+          echo "Environments: $ENV_RESP"
+          ENV_ID=$(echo $ENV_RESP | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['data']['project']['environments']['edges'][0]['node']['id'])" 2>/dev/null)
+          echo "Environment ID: $ENV_ID"
+
+          # Set environment variables
+          set_var() {
+            curl -s -X POST https://backboard.railway.app/graphql/v2 \
+              -H "Authorization: Bearer $RAILWAY_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "{\"query\":\"mutation { variableUpsert(input: { projectId: \\\"$PROJECT_ID\\\", environmentId: \\\"$ENV_ID\\\", serviceId: \\\"$SERVICE_ID\\\", name: \\\"$1\\\", value: \\\"$2\\\" }) }\"}" > /dev/null
+            echo "Set var: $1"
+          }
+
+          set_var "DISCORD_TOKEN" "$DISCORD_TOKEN"
+          set_var "AI_INTEGRATIONS_OPENAI_BASE_URL" "$AI_BASE_URL"
+          set_var "AI_INTEGRATIONS_OPENAI_API_KEY" "$AI_API_KEY"
+          set_var "PYTHONUNBUFFERED" "1"
+
+      - name: Deploy to Railway
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          railway up --project-id 023ba619-4b39-47b1-a8c4-c6c6f130f4c8 --service discord-bot --detach
