@@ -11,10 +11,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
       - name: Install Railway CLI
-        run: curl -fsSL https://railway.app/install.sh | sh
+        run: npm install -g @railway/cli
 
       - name: Deploy to Railway
-        run: ~/.railway/bin/railway up --detach --service discord-bot
+        run: railway up --detach --service discord-bot
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
