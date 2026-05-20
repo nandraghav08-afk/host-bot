@@ -92,6 +92,10 @@ def is_emperor_chat(channel: discord.TextChannel) -> bool:
 
 async def ai_reply(message: discord.Message, content: str) -> None:
     """Send AI reply to a message, keeping per-channel history."""
+    if not AI_ENABLED:
+        await message.reply("AI features are not available right now. All moderation commands still work!")
+        return
+
     channel_id = message.channel.id
     if channel_id not in conversation_history:
         conversation_history[channel_id] = []
