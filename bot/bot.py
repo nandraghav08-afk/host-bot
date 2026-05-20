@@ -7,10 +7,11 @@ from discord.ext import commands
 from openai import OpenAI
 
 DISCORD_TOKEN = os.environ["DISCORD_TOKEN"]
-AI_BASE_URL = os.environ["AI_INTEGRATIONS_OPENAI_BASE_URL"]
-AI_API_KEY = os.environ["AI_INTEGRATIONS_OPENAI_API_KEY"]
+AI_BASE_URL = os.environ.get("AI_INTEGRATIONS_OPENAI_BASE_URL", "")
+AI_API_KEY = os.environ.get("AI_INTEGRATIONS_OPENAI_API_KEY", "")
 
-openai_client = OpenAI(base_url=AI_BASE_URL, api_key=AI_API_KEY)
+AI_ENABLED = bool(AI_BASE_URL and AI_API_KEY)
+openai_client = OpenAI(base_url=AI_BASE_URL, api_key=AI_API_KEY) if AI_ENABLED else None
 
 intents = discord.Intents.default()
 intents.message_content = True
