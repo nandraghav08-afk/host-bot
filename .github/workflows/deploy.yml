@@ -16,43 +16,47 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Railway CLI
-        run: npm install -g @railway/cli
-
-      - name: Set env vars and get project token
-        id: tokens
+      - name: Set env vars and connect GitHub repo to Railway
         env:
-          RAILWAY_ACCOUNT_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
           DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
         run: |
-          # Set DISCORD_TOKEN env var on Railway
+          # Set DISCORD_TOKEN
           curl -s -X POST https://backboard.railway.app/graphql/v2 \
-            -H "Authorization: Bearer $RAILWAY_ACCOUNT_TOKEN" \
+            -H "Authorization: Bearer $RAILWAY_TOKEN" \
             -H "Content-Type: application/json" \
             -d "{\"query\":\"mutation { variableUpsert(input: { projectId: \\\"$PROJECT_ID\\\", environmentId: \\\"$ENV_ID\\\", serviceId: \\\"$SERVICE_ID\\\", name: \\\"DISCORD_TOKEN\\\", value: \\\"$DISCORD_TOKEN\\\" }) }\"}" > /dev/null
-          echo "✅ Set DISCORD_TOKEN"
+          echo "✅ DISCORD_TOKEN set"
 
           curl -s -X POST https://backboard.railway.app/graphql/v2 \
-            -H "Authorization: Bearer $RAILWAY_ACCOUNT_TOKEN" \
+            -H "Authorization: Bearer $RAILWAY_TOKEN" \
             -H "Content-Type: application/json" \
             -d "{\"query\":\"mutation { variableUpsert(input: { projectId: \\\"$PROJECT_ID\\\", environmentId: \\\"$ENV_ID\\\", serviceId: \\\"$SERVICE_ID\\\", name: \\\"PYTHONUNBUFFERED\\\", value: \\\"1\\\" }) }\"}" > /dev/null
-          echo "✅ Set PYTHONUNBUFFERED"
+          echo "✅ PYTHONUNBUFFERED set"
 
-          # Create a project token for CLI auth
-          TOKEN_RESP=$(curl -s -X POST https://backboard.railway.app/graphql/v2 \
-            -H "Authorization: Bearer $RAILWAY_ACCOUNT_TOKEN" \
+          # Connect GitHub repo as source for the service
+          CONNECT_RESP=$(curl -s -X POST https://backboard.railway.app/graphql/v2 \
+            -H "Authorization: Bearer $RAILWAY_TOKEN" \
             -H "Content-Type: application/json" \
-            -d "{\"query\":\"mutation { projectTokenCreate(input: { projectId: \\\"$PROJECT_ID\\\", environmentId: \\\"$ENV_ID\\\", name: \\\"ci-deploy\\\" }) }\"}")
-          echo "Token response: $TOKEN_RESP"
-          PROJECT_TOKEN=$(echo $TOKEN_RESP | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['projectTokenCreate'])" 2>/dev/null)
-          if [ -z "$PROJECT_TOKEN" ]; then
-            echo "Failed to create project token!"
-            exit 1
-          fi
-          echo "✅ Got project token"
-          echo "project_token=$PROJECT_TOKEN" >> $GITHUB_OUTPUT
+            -d "{\"query\":\"mutation { serviceInstanceUpdate(serviceId: \\\"$SERVICE_ID\\\", environmentId: \\\"$ENV_ID\\\", input: { source: { repo: \\\"nandraghav08-afk/host-bot\\\" } }) }\"}")
+          echo "Connect response: $CONNECT_RESP"
 
-      - name: Deploy to Railway
-        env:
-          RAILWAY_TOKEN: ${{ steps.tokens.outputs.project_token }}
-        run: railway up --service $SERVICE_ID --detach
+          # Try alternative: create a deployment directly
+          DEPLOY_RESP=$(curl -s -X POST https://backboard.railway.app/graphql/v2 \
+            -H "Authorization: Bearer $RAILWAY_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "{\"query\":\"mutation { serviceInstanceDeploy(serviceId: \\\"$SERVICE_ID\\\", environmentId: \\\"$ENV_ID\\\") }\"}")
+          echo "Deploy response: $DEPLOY_RESP"
+
+          # List available mutations to understand the schema
+          SCHEMA_RESP=$(curl -s -X POST https://backboard.railway.app/graphql/v2 \
+            -H "Authorization: Bearer $RAILWAY_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d '{"query":"{ __type(name: \"Mutation\") { fields { name } } }"}')
+          echo "$SCHEMA_RESP" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+fields = d.get('data', {}).get('__type', {}).get('fields', [])
+names = [f['name'] for f in fields if any(k in f['name'].lower() for k in ['deploy', 'service', 'source'])]
+print('Relevant mutations:', names[:30])
+" 2>/dev/null || echo "Schema query failed"
