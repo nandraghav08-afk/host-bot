@@ -1,0 +1,13 @@
+services:
+  - type: worker
+    name: discord-bot
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python bot/bot.py
+    envVars:
+      - key: DISCORD_TOKEN
+        sync: false
+      - key: AI_INTEGRATIONS_OPENAI_BASE_URL
+        sync: false
+      - key: AI_INTEGRATIONS_OPENAI_API_KEY
+        sync: false
