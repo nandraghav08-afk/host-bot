@@ -42,7 +42,7 @@ jobs:
           TOKEN_RESP=$(curl -s -X POST https://backboard.railway.app/graphql/v2 \
             -H "Authorization: Bearer $RAILWAY_ACCOUNT_TOKEN" \
             -H "Content-Type: application/json" \
-            -d "{\"query\":\"mutation { projectTokenCreate(projectId: \\\"$PROJECT_ID\\\", environmentId: \\\"$ENV_ID\\\", name: \\\"ci-deploy\\\") }\"}")
+            -d "{\"query\":\"mutation { projectTokenCreate(input: { projectId: \\\"$PROJECT_ID\\\", environmentId: \\\"$ENV_ID\\\", name: \\\"ci-deploy\\\" }) }\"}")
           echo "Token response: $TOKEN_RESP"
           PROJECT_TOKEN=$(echo $TOKEN_RESP | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['projectTokenCreate'])" 2>/dev/null)
           if [ -z "$PROJECT_TOKEN" ]; then
