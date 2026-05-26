@@ -1,16 +1,12 @@
 import os
 import re
+import random
 import datetime
 import discord
 from discord import app_commands
 from discord.ext import commands
-from openai import OpenAI
 
 DISCORD_TOKEN = os.environ["DISCORD_TOKEN"]
-AI_BASE_URL = os.environ.get("AI_INTEGRATIONS_OPENAI_BASE_URL", "")
-AI_API_KEY = os.environ.get("AI_INTEGRATIONS_OPENAI_API_KEY", "")
-
-openai_client = OpenAI(base_url=AI_BASE_URL, api_key=AI_API_KEY)
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -43,27 +39,43 @@ LINK_PATTERN = re.compile(
 # ── In-memory warning tracker {user_id: warning_count} ───────────────────────
 warnings: dict[int, int] = {}
 
-# ── Per-channel AI conversation history ───────────────────────────────────────
-conversation_history: dict[int, list[dict]] = {}
+# ── Pre-written jokes ─────────────────────────────────────────────────────────
+JOKES = [
+    "Why don't scientists trust atoms? Because they make up everything! 😄",
+    "I told my computer I needed a break. Now it won't stop sending me Kit-Kat ads. 🍫",
+    "Why do programmers prefer dark mode? Because light attracts bugs! 🐛",
+    "I asked the librarian if they had books about paranoia. She whispered, 'They're right behind you!' 👀",
+    "Why did the scarecrow win an award? Because he was outstanding in his field! 🌾",
+    "I'm reading a book about anti-gravity. It's impossible to put down! 📚",
+    "Why did the bicycle fall over? Because it was two-tired! 🚲",
+    "What do you call a fake noodle? An impasta! 🍝",
+    "Why can't you give Elsa a balloon? Because she'll let it go! 🎈",
+    "I used to hate facial hair, but then it grew on me. 🧔",
+    "Why did the math book look so sad? Because it had too many problems! 📖",
+    "What do you call cheese that isn't yours? Nacho cheese! 🧀",
+    "Why did the golfer bring an extra pair of pants? In case he got a hole in one! ⛳",
+    "I told my wife she was drawing her eyebrows too high. She looked surprised! 😲",
+    "What do you call a sleeping dinosaur? A dino-snore! 🦕",
+    "Why don't eggs tell jokes? They'd crack each other up! 🥚",
+    "What's a vampire's favourite fruit? A blood orange! 🍊",
+    "Why did the coffee file a police report? It got mugged! ☕",
+    "What do you call a bear with no teeth? A gummy bear! 🐻",
+    "Why did the stadium get hot after the game? All the fans left! 🏟️",
+]
 
-SYSTEM_PROMPT = (
-    "You are a fun, witty, and friendly Discord bot. "
-    "ALWAYS keep replies SHORT — 1 to 3 sentences maximum. Never write long paragraphs. "
-    "Be casual, playful, and entertaining. Use simple, conversational language. "
-    "PERSONALITY & RESPONSE RULES:\n"
-    "- When someone sends a message, reply naturally and conversationally.\n"
-    "- Feel free to make light-hearted, playful jokes about the person who sent the message (never mean-spirited, always fun).\n"
-    "- If any names are mentioned in the message, weave a short fun story or joke involving that person.\n"
-    "- Keep the energy fun and engaging — like a witty friend in the chat.\n"
-    "IMPORTANT RULES you must always follow:\n"
-    "- Never explain how to create, build, code, or host a Discord bot or any bot.\n"
-    "- Never explain how to host, deploy, or set up an AI model or AI service.\n"
-    "- Never explain how to get or use bot tokens, API keys, or developer portals.\n"
-    "- Never explain how to set up servers, VPS, cloud hosting, or similar infrastructure.\n"
-    "- If anyone asks about these topics, politely decline in one short sentence.\n"
-    "- If someone is rude, kindly ask them to be respectful in one sentence.\n"
-    "- Always respond in a fun, playful, and brief tone."
-)
+# ── Pre-written story templates ───────────────────────────────────────────────
+STORY_TEMPLATES = [
+    "Once upon a time, {name} walked into a room full of penguins. Nobody questioned it. The penguins didn't either. 🐧",
+    "Legend has it that {name} once stared at a loading screen for so long it started staring back. 👁️",
+    "They say {name} once tried to Google themselves and the internet crashed from the sheer awesomeness. 💥",
+    "There's a tale of {name} who ordered a pizza and it arrived before they even finished typing the address. 🍕",
+    "It is written that {name} once told a joke so funny that even the Wi-Fi router started laughing and disconnected. 📶",
+    "Historians believe {name} once high-fived so hard that it created a small gust of wind felt three towns over. 💨",
+    "The ancient scrolls speak of {name} who could parallel park on the first try, every single time. 🚗",
+    "Rumour has it {name} once finished a to-do list entirely. Scientists are still investigating. 📋",
+    "It is said that {name} once replied to an email within 30 seconds. The recipient fainted from shock. 📧",
+    "Folk songs tell of {name} who found matching socks on the first drawer dig. A true hero. 🧦",
+]
 
 
 # ── Forbidden topic detection ─────────────────────────────────────────────────
@@ -95,39 +107,21 @@ def is_bot_chat(channel: discord.TextChannel) -> bool:
 def is_emperor_chat(channel: discord.TextChannel) -> bool:
     return EMPEROR_CHAT_NAME in channel.name.lower()
 
-async def ai_reply(message: discord.Message, content: str) -> None:
-    """Send AI reply to a message, keeping per-channel history."""
-    channel_id = message.channel.id
-    if channel_id not in conversation_history:
-        conversation_history[channel_id] = []
+async def simple_reply(message: discord.Message, content: str) -> None:
+    """Reply with a random joke, or a story featuring any mentioned names."""
+    # Collect display names of mentioned members (excluding the bot itself)
+    mentioned_names = [
+        m.display_name for m in message.mentions if not m.bot
+    ]
 
-    # Prefix the message with the sender's name so the AI can reference them
-    sender_name = message.author.display_name
-    enriched_content = f"[Message from {sender_name}]: {content}"
+    if mentioned_names:
+        # Pick a random name from the mentions and build a story around them
+        name = random.choice(mentioned_names)
+        reply = random.choice(STORY_TEMPLATES).format(name=name)
+    else:
+        reply = random.choice(JOKES)
 
-    conversation_history[channel_id].append({"role": "user", "content": enriched_content})
-    if len(conversation_history[channel_id]) > 20:
-        conversation_history[channel_id] = conversation_history[channel_id][-20:]
-
-    async with message.channel.typing():
-        try:
-            response = openai_client.chat.completions.create(
-                model="gpt-5-mini",
-                max_completion_tokens=1024,
-                messages=[{"role": "system", "content": SYSTEM_PROMPT}]
-                + conversation_history[channel_id],
-            )
-            reply = response.choices[0].message.content
-            conversation_history[channel_id].append(
-                {"role": "assistant", "content": reply}
-            )
-            if len(reply) > 2000:
-                for i in range(0, len(reply), 2000):
-                    await message.reply(reply[i : i + 2000])
-            else:
-                await message.reply(reply)
-        except Exception as e:
-            await message.reply(f"Sorry, something went wrong: {e}")
+    await message.reply(reply)
 
 
 async def apply_timeout(member: discord.Member, duration: datetime.timedelta, reason: str) -> bool:
@@ -228,7 +222,7 @@ async def on_message(message: discord.Message):
         if message.reference is not None:
             # It's a reply to someone else — stay silent
             return
-        await ai_reply(message, content)
+        await simple_reply(message, content)
         return
 
     # ── 4. #👑emperor-ship: only respond when bot is pinged ───────────────────
@@ -238,7 +232,7 @@ async def on_message(message: discord.Message):
             text = content.replace(f"<@{bot.user.id}>", "").replace(f"<@!{bot.user.id}>", "").strip()
             if not text:
                 text = "Hey! How can I help you?"
-            await ai_reply(message, text)
+            await simple_reply(message, text)
         else:
             # Not pinged — remind them to use #bot-chat
             await message.reply(
@@ -260,15 +254,8 @@ async def on_ready():
 
 @bot.command(name="ask")
 async def ask(ctx: commands.Context, *, question: str):
-    """Ask the AI a question. Usage: !ask <your question>"""
-    await ai_reply(ctx.message, question)
-
-
-@bot.command(name="reset")
-async def reset(ctx: commands.Context):
-    """Reset the AI conversation history for this channel. Usage: !reset"""
-    conversation_history.pop(ctx.channel.id, None)
-    await ctx.reply("Conversation history cleared!")
+    """Ask the bot something fun. Usage: !ask <your question>"""
+    await simple_reply(ctx.message, question)
 
 
 @bot.command(name="warnings")
@@ -398,10 +385,9 @@ async def bothelp(ctx: commands.Context):
         color=discord.Color.blurple(),
     )
     embed.add_field(
-        name="🤖 AI",
+        name="🤖 Fun",
         value=(
-            "`!ask <question>` — Ask the AI anything\n"
-            "`!reset` — Clear conversation history for this channel"
+            "`!ask <question>` — Get a fun joke or story"
         ),
         inline=False,
     )
