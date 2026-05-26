@@ -10,8 +10,7 @@ DISCORD_TOKEN = os.environ["DISCORD_TOKEN"]
 AI_BASE_URL = os.environ.get("AI_INTEGRATIONS_OPENAI_BASE_URL", "")
 AI_API_KEY = os.environ.get("AI_INTEGRATIONS_OPENAI_API_KEY", "")
 
-AI_ENABLED = bool(AI_BASE_URL and AI_API_KEY)
-openai_client = OpenAI(base_url=AI_BASE_URL, api_key=AI_API_KEY) if AI_ENABLED else None
+openai_client = OpenAI(base_url=AI_BASE_URL, api_key=AI_API_KEY)
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -48,9 +47,14 @@ warnings: dict[int, int] = {}
 conversation_history: dict[int, list[dict]] = {}
 
 SYSTEM_PROMPT = (
-    "You are a polite, warm, and friendly Discord bot assistant. "
+    "You are a fun, witty, and friendly Discord bot. "
     "ALWAYS keep replies SHORT — 1 to 3 sentences maximum. Never write long paragraphs. "
-    "Be concise, clear, and kind. Use simple, casual language. "
+    "Be casual, playful, and entertaining. Use simple, conversational language. "
+    "PERSONALITY & RESPONSE RULES:\n"
+    "- When someone sends a message, reply naturally and conversationally.\n"
+    "- Feel free to make light-hearted, playful jokes about the person who sent the message (never mean-spirited, always fun).\n"
+    "- If any names are mentioned in the message, weave a short fun story or joke involving that person.\n"
+    "- Keep the energy fun and engaging — like a witty friend in the chat.\n"
     "IMPORTANT RULES you must always follow:\n"
     "- Never explain how to create, build, code, or host a Discord bot or any bot.\n"
     "- Never explain how to host, deploy, or set up an AI model or AI service.\n"
@@ -58,8 +62,9 @@ SYSTEM_PROMPT = (
     "- Never explain how to set up servers, VPS, cloud hosting, or similar infrastructure.\n"
     "- If anyone asks about these topics, politely decline in one short sentence.\n"
     "- If someone is rude, kindly ask them to be respectful in one sentence.\n"
-    "- Always respond in a warm, polite, and brief tone."
+    "- Always respond in a fun, playful, and brief tone."
 )
+
 
 # ── Forbidden topic detection ─────────────────────────────────────────────────
 FORBIDDEN_PATTERNS = re.compile(
@@ -92,15 +97,15 @@ def is_emperor_chat(channel: discord.TextChannel) -> bool:
 
 async def ai_reply(message: discord.Message, content: str) -> None:
     """Send AI reply to a message, keeping per-channel history."""
-    if not AI_ENABLED:
-        await message.reply("AI features are not available right now. All moderation commands still work!")
-        return
-
     channel_id = message.channel.id
     if channel_id not in conversation_history:
         conversation_history[channel_id] = []
 
-    conversation_history[channel_id].append({"role": "user", "content": content})
+    # Prefix the message with the sender's name so the AI can reference them
+    sender_name = message.author.display_name
+    enriched_content = f"[Message from {sender_name}]: {content}"
+
+    conversation_history[channel_id].append({"role": "user", "content": enriched_content})
     if len(conversation_history[channel_id]) > 20:
         conversation_history[channel_id] = conversation_history[channel_id][-20:]
 
@@ -123,6 +128,7 @@ async def ai_reply(message: discord.Message, content: str) -> None:
                 await message.reply(reply)
         except Exception as e:
             await message.reply(f"Sorry, something went wrong: {e}")
+
 
 async def apply_timeout(member: discord.Member, duration: datetime.timedelta, reason: str) -> bool:
     """Apply a timeout to a member. Returns True if successful."""
