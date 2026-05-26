@@ -1,2 +1,1 @@
 discord.py==2.3.2
-openai==1.82.0
